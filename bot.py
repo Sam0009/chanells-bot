@@ -26,7 +26,7 @@ CHANNELS = [
     ("😍 برشا ساخر", "https://t.me/+QINP4DoQabQ4MTM0"),
     ("🖼 خلفيات | Wallpapers", "https://t.me/+dL4CJEcE1gNmYjRi"),
     ("🦁 البريميرليغ بالعربي", "https://t.me/+CfUPe5f9qpVhYTFk"),
-    ("⚽ أهداف المباريات", "https://t.me/+jrOHJcpB2WExY2Vk"),
+    ("⚽️ أهداف المباريات", "https://t.me/+jrOHJcpB2WExY2Vk"),
 ]
 
 
@@ -49,5 +49,5 @@ def main() -> None:
     app.run_polling()
 
 
-if name == "main":
+if __name__ == "__main__":
     main()
