@@ -1,12 +1,25 @@
-import os
+ import os
 import logging
+from datetime import datetime, timezone, timedelta
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MessageEntity
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+from supabase import create_client, Client
 
 logging.basicConfig(level=logging.INFO)
 
 # ضع التوكن هنا مباشرة أو عبر متغير بيئة BOT_TOKEN
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ضع_التوكن_هنا")
+
+# آيدي حسابك بتيليجرام (رقم) — بس هالحساب يقدر يستخدم أمر /stats
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "6094432183"))
+
+# بيانات الاتصال بـ Supabase (تلاقيهم بمشروعك على supabase.com -> Settings -> API)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # رابط صفحة القنوات (GitHub Pages)
 MINI_APP_URL = "https://sam0009.github.io/chanells/"
@@ -36,7 +49,29 @@ def utf16_len(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
+def log_user(user) -> None:
+    """يسجل المستخدم بقاعدة البيانات إذا كانت هاي أول مرة يدخل فيها، وإلا يحدث آخر ظهور له."""
+    try:
+        existing = supabase.table("users").select("user_id").eq("user_id", user.id).execute()
+        now = datetime.now(timezone.utc).isoformat()
+
+        if existing.data:
+            supabase.table("users").update({"last_seen": now}).eq("user_id", user.id).execute()
+        else:
+            supabase.table("users").insert({
+                "user_id": user.id,
+                "username": user.username or "",
+                "first_name": user.first_name or "",
+                "first_seen": now,
+                "last_seen": now,
+            }).execute()
+    except Exception as e:
+        logging.error(f"Supabase log_user error: {e}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log_user(update.effective_user)
+
     header = "\n".join(HEADER_LINES) + "\n"
     body = ""
     entities = []
@@ -53,7 +88,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         )
         body += line + "\n"
-        offset += utf16_len(line) + 1  # +1 لسطر جديد
+        offset += utf16_len(line) + 1
 
     full_text = header + body
 
@@ -70,9 +105,42 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    try:
+        total = supabase.table("users").select("user_id", count="exact").execute()
+        total_count = total.count or 0
+ now = datetime.now(timezone.utc)
+        since_today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        since_week = (now - timedelta(days=7)).isoformat()
+
+        today = supabase.table("users").select("user_id", count="exact") \
+            .gte("first_seen", since_today).execute()
+        week = supabase.table("users").select("user_id", count="exact") \
+            .gte("first_seen", since_week).execute()
+
+        active_today = supabase.table("users").select("user_id", count="exact") \
+            .gte("last_seen", since_today).execute()
+
+        text = (
+            "📊 إحصائيات البوت\n\n"
+            f"👥 إجمالي المستخدمين: {total_count}\n"
+            f"🆕 مستخدمين جدد اليوم: {today.count or 0}\n"
+            f"🆕 مستخدمين جدد آخر 7 أيام: {week.count or 0}\n"
+            f"🟢 نشطين اليوم (فتحوا /start): {active_today.count or 0}\n"
+        )
+        await update.message.reply_text(text)
+    except Exception as e:
+        logging.error(f"Supabase stats error: {e}")
+        await update.message.reply_text("⚠️ صار خطأ بجلب الإحصائيات.")
+
+
 def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
     app.run_polling()
 
 
